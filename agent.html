@@ -154,6 +154,69 @@
         }
         .audit-footer-row button:hover { background: rgba(255,255,255,0.1); }
 
+        /* ── Co-Browsing Control Mode ── */
+        #remote-video-container.control-mode {
+            cursor: none; /* hide host cursor — we show our own */
+        }
+        #remote-video-container.control-mode video {
+            cursor: none;
+        }
+        .tool-btn.control-active {
+            background: #ef4444 !important;
+            color: white !important;
+            animation: pulse-control 1.5s ease infinite;
+        }
+        @keyframes pulse-control {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
+            50%       { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+        }
+        /* Virtual agent cursor rendered on top of the video */
+        #agent-cursor-overlay {
+            position: absolute;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: 2.5px solid #6366f1;
+            background: rgba(99,102,241,0.25);
+            pointer-events: none;
+            display: none;
+            z-index: 200;
+            transform: translate(-50%, -50%);
+            transition: left 0.05s linear, top 0.05s linear;
+            box-shadow: 0 0 8px rgba(99,102,241,0.6);
+        }
+        #agent-cursor-overlay::after {
+            content: '';
+            position: absolute;
+            left: 50%; top: 50%;
+            transform: translate(-50%, -50%);
+            width: 5px; height: 5px;
+            border-radius: 50%;
+            background: #6366f1;
+        }
+        /* Control banner shown on agent side */
+        .control-banner {
+            position: absolute;
+            top: 1rem; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(239,68,68,0.85);
+            backdrop-filter: blur(6px);
+            color: white;
+            padding: 0.3rem 1rem;
+            border-radius: 2rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            pointer-events: none;
+            display: none;
+            z-index: 201;
+            white-space: nowrap;
+            letter-spacing: 0.04em;
+        }
+        #remote-video-container.control-mode .agent-cursor-overlay,
+        #remote-video-container.control-mode .control-banner {
+            display: block;
+        }
+
         /* ── Fullscreen Cinema Mode ── */
         #remote-video-container.fullscreen-mode {
             position: fixed;
@@ -252,10 +315,16 @@
                     <canvas id="agent-canvas" class="annotation-layer"></canvas>
                 </div>
 
+                <!-- Agent cursor overlay -->
+                <div id="agent-cursor-overlay"></div>
+                <!-- Control mode banner -->
+                <div class="control-banner" id="control-banner">🚨 CONTROL MODE ACTIVE</div>
+
                 <div class="draw-controls">
                     <button id="pointer-tool" class="tool-btn active" title="Pointer Mode">🖱️</button>
                     <button id="draw-tool" class="tool-btn" title="Annotation Mode">✏️</button>
                     <button id="clear-tool" class="tool-btn" title="Clear Annotations">🗑️</button>
+                    <button id="control-mode-btn" class="tool-btn" title="Toggle Control Mode (C)">🎮</button>
                     <button id="fullscreen-tool" class="tool-btn" title="Toggle Fullscreen (F)">⛶</button>
                 </div>
 
@@ -574,18 +643,122 @@
                 <div class="device-cell"><span class="label">Session ID</span><span class="value">${info.sessionId || '—'}</span></div>`;
         }
 
-        // ─── Remote Click ─────────────────────────────────────────────────────────
-        videoContainer.addEventListener('mousedown', (e) => {
-            if (currentTool !== 'pointer' || !conn || !conn.open) return;
+        // ─── Control Mode (Co-Browsing) ──────────────────────────────────────────
+        let controlMode = false;
+        let lastPointerSent = 0;
+        const POINTER_THROTTLE_MS = 33; // ~30fps
+        const controlModeBtn = document.getElementById('control-mode-btn');
+        const agentCursorOverlay = document.getElementById('agent-cursor-overlay');
+        const controlBanner = document.getElementById('control-banner');
+
+        function toggleControlMode() {
+            if (!conn || !conn.open) {
+                alert('Connect to a customer session first.');
+                return;
+            }
+            controlMode = !controlMode;
+            videoContainer.classList.toggle('control-mode', controlMode);
+            controlModeBtn.classList.toggle('control-active', controlMode);
+            controlModeBtn.title = controlMode ? 'Exit Control Mode (C)' : 'Toggle Control Mode (C)';
+            agentCursorOverlay.style.display = controlMode ? 'block' : 'none';
+            controlBanner.style.display = controlMode ? 'block' : 'none';
+
+            conn.send({ type: 'control-mode', active: controlMode });
+            addAudit(controlMode ? '🎮' : '⏸', controlMode ? 'Control mode ENABLED' : 'Control mode DISABLED', agentLabel, '', controlMode ? 'warn' : 'info');
+        }
+
+        controlModeBtn.onclick = toggleControlMode;
+
+        // Helper: get pct coords relative to the video element itself
+        function getVideoPct(e) {
+            const rect = videoElement.getBoundingClientRect();
+            // Clamp to video bounds
+            const rx = Math.max(0, Math.min(rect.width,  e.clientX - rect.left));
+            const ry = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+            return { x: (rx / rect.width) * 100, y: (ry / rect.height) * 100 };
+        }
+
+        // ── Mouse Move (pointer) ──────────────────────────────────────────────────
+        videoContainer.addEventListener('mousemove', (e) => {
+            if (!conn || !conn.open) return;
             if (e.target.closest('.draw-controls')) return;
 
             const rect = videoElement.getBoundingClientRect();
+            const rx = e.clientX - rect.left;
+            const ry = e.clientY - rect.top;
+
+            // Move virtual cursor overlay on agent side
+            if (controlMode) {
+                agentCursorOverlay.style.left = rx + 'px';
+                agentCursorOverlay.style.top  = ry + 'px';
+            }
+
+            // Throttle DataChannel sends
+            const now = Date.now();
+            if (now - lastPointerSent < POINTER_THROTTLE_MS) return;
+            lastPointerSent = now;
+
+            if (controlMode) {
+                const pct = getVideoPct(e);
+                conn.send({ type: 'pointer', x: pct.x, y: pct.y });
+            }
+        });
+
+        videoContainer.addEventListener('mouseleave', () => {
+            agentCursorOverlay.style.display = 'none';
+            if (controlMode && conn && conn.open) conn.send({ type: 'pointer-leave' });
+        });
+
+        videoContainer.addEventListener('mouseenter', () => {
+            if (controlMode) agentCursorOverlay.style.display = 'block';
+        });
+
+        // ── Mouse Down / Up ───────────────────────────────────────────────────────
+        videoContainer.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.draw-controls')) return;
+
+            if (controlMode && conn && conn.open) {
+                const pct = getVideoPct(e);
+                conn.send({ type: 'mousedown', x: pct.x, y: pct.y, button: e.button });
+                addAudit('🖱️', 'Remote mousedown', agentLabel, `(${pct.x.toFixed(1)}%, ${pct.y.toFixed(1)}%) btn:${e.button}`, 'warn');
+                return;
+            }
+
+            // Legacy pointer-tool click
+            if (currentTool !== 'pointer' || !conn || !conn.open) return;
+            const rect = videoElement.getBoundingClientRect();
             const x = ((e.clientX - rect.left) / rect.width)  * 100;
             const y = ((e.clientY - rect.top)  / rect.height) * 100;
-
             conn.send({ type: 'remote-click', x, y });
-            addAudit('🖱️', 'Remote click sent', agentLabel, `pos: (${x.toFixed(1)}%, ${y.toFixed(1)}%)`, 'warn');
+            addAudit('🖱️', 'Remote click sent', agentLabel, `(${x.toFixed(1)}%, ${y.toFixed(1)}%)`, 'warn');
         });
+
+        videoContainer.addEventListener('mouseup', (e) => {
+            if (!controlMode || !conn || !conn.open) return;
+            if (e.target.closest('.draw-controls')) return;
+            const pct = getVideoPct(e);
+            conn.send({ type: 'mouseup', x: pct.x, y: pct.y, button: e.button });
+        });
+
+        // ── Scroll / Wheel ────────────────────────────────────────────────────────
+        videoContainer.addEventListener('wheel', (e) => {
+            if (!controlMode || !conn || !conn.open) return;
+            if (e.target.closest('.draw-controls')) return;
+            e.preventDefault();
+            const pct = getVideoPct(e);
+            conn.send({ type: 'scroll', x: pct.x, y: pct.y, deltaX: e.deltaX, deltaY: e.deltaY });
+        }, { passive: false });
+
+        // ── Keyboard Input ────────────────────────────────────────────────────────
+        // Capture keypresses when hovering over the video in control mode
+        videoContainer.addEventListener('keydown', (e) => {
+            if (!controlMode || !conn || !conn.open) return;
+            e.preventDefault();
+            conn.send({ type: 'keydown', key: e.key, code: e.code, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey });
+        });
+
+        // Make video container focusable for keyboard events
+        videoContainer.setAttribute('tabindex', '0');
 
         // ─── Disconnect ───────────────────────────────────────────────────────────
         disconnectBtn.onclick = () => {
@@ -616,18 +789,22 @@
 
         fullscreenTool.onclick = toggleFullscreen;
 
-        // Keyboard shortcuts: F to toggle, Escape to exit
+        // Keyboard shortcuts: F to toggle fullscreen, C to toggle control mode, Escape to exit
         document.addEventListener('keydown', (e) => {
-            // Don't capture if user is typing in input
+            // Don't capture global shortcuts when typing in input fields
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            // Don't capture page shortcuts when control mode is routing keys to customer
+            if (controlMode && e.target === videoContainer) return;
 
-            if (e.key === 'f' || e.key === 'F') {
-                if (videoContainer.style.display !== 'none') {
-                    toggleFullscreen();
-                }
+            if ((e.key === 'f' || e.key === 'F') && !controlMode) {
+                if (videoContainer.style.display !== 'none') toggleFullscreen();
             }
-            if (e.key === 'Escape' && isFullscreen) {
-                toggleFullscreen();
+            if (e.key === 'c' || e.key === 'C') {
+                if (videoContainer.style.display !== 'none') toggleControlMode();
+            }
+            if (e.key === 'Escape') {
+                if (isFullscreen) toggleFullscreen();
+                if (controlMode)  toggleControlMode();
             }
         });
 
