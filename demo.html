@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SaaS Dashboard - Demo Form</title>
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #f8fafc;
+            color: #0f172a;
+            padding: 40px;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+        }
+        .app-container {
+            width: 100%;
+            max-width: 600px;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        h1 { margin-top: 0; font-size: 24px; color: #1e293b; }
+        p { color: #64748b; margin-bottom: 30px; }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            box-sizing: border-box;
+            font-size: 16px;
+            font-family: inherit;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .checkbox-group input { width: auto; }
+        
+        button.submit-btn {
+            background: #0f172a;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: background 0.2s;
+        }
+        button.submit-btn:hover { background: #1e293b; }
+        
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #dcfce7;
+            color: #166534;
+            border-radius: 6px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <h1>Account Setup</h1>
+    <p>Complete your profile configuration. Need help? Click the support icon in the bottom right corner.</p>
+
+    <form id="demo-form" onsubmit="event.preventDefault(); document.getElementById('result').style.display='block';">
+        <div class="form-group">
+            <label for="companyName">Company Name</label>
+            <input type="text" id="companyName" placeholder="Acme Corp">
+        </div>
+        
+        <div class="form-group">
+            <label for="industry">Industry</label>
+            <select id="industry">
+                <option value="">Select Industry...</option>
+                <option value="tech">Technology</option>
+                <option value="finance">Finance</option>
+                <option value="healthcare">Healthcare</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="comments">Additional Notes</label>
+            <textarea id="comments" rows="4" placeholder="Any special requirements..."></textarea>
+        </div>
+
+        <div class="form-group checkbox-group">
+            <input type="checkbox" id="terms">
+            <label for="terms" style="margin: 0; font-weight: normal;">I agree to the terms of service</label>
+        </div>
+
+        <button type="submit" class="submit-btn" id="save-btn">Save Configuration</button>
+    </form>
+    
+    <div id="result">🎉 Form submitted successfully!</div>
+</div>
+
+<!-- ========================================== -->
+<!-- 🚀 DROP-IN REMOTE ASSIST WIDGET            -->
+<!-- ========================================== -->
+<script src="widget.js"></script>
+
+</body>
+</html>
