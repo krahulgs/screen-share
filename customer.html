@@ -140,6 +140,23 @@
         }
         .unsupported-banner .tip strong { color: var(--text-main); }
 
+        /* Click Ripple Effect */
+        .click-ripple {
+            position: fixed;
+            width: 40px;
+            height: 40px;
+            background: rgba(239, 68, 68, 0.4);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 10002;
+            transform: translate(-50%, -50%) scale(0);
+            animation: ripple-out 0.6s ease-out forwards;
+        }
+        @keyframes ripple-out {
+            from { transform: translate(-50%, -50%) scale(0); opacity: 0.8; }
+            to   { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+        }
+
         /* Agent Virtual Cursor */
         #agent-cursor {
             position: fixed;
@@ -629,8 +646,9 @@
         const agentLinkCursor = document.getElementById('agent-cursor');
 
         function simulatePointer(xPercent, yPercent) {
-            const x = (xPercent / 100) * window.innerWidth;
-            const y = (yPercent / 100) * window.innerHeight;
+            const doc = document.documentElement;
+            const x = (xPercent / 100) * doc.clientWidth;
+            const y = (yPercent / 100) * doc.clientHeight;
             
             if (agentLinkCursor) {
                 agentLinkCursor.style.left = x + 'px';
@@ -638,24 +656,39 @@
                 agentLinkCursor.style.display = 'block';
             }
 
-            // Simulate mouseover
-            const element = document.elementFromPoint(x, y);
-            if (element) {
-                element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
+            // Simulate mouseover (finding first non-portal element)
+            const elements = document.elementsFromPoint(x, y);
+            const target = elements.find(el => !el.closest('#audit-panel') && !el.closest('#remote-control-banner') && el.id !== 'agent-cursor');
+            
+            if (target) {
+                target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
             }
         }
 
+        function showClickRipple(x, y) {
+            const ripple = document.createElement('div');
+            ripple.className = 'click-ripple';
+            ripple.style.left = x + 'px';
+            ripple.style.top = y + 'px';
+            document.body.appendChild(ripple);
+            setTimeout(() => ripple.remove(), 700);
+        }
+
         function simulateMouseEvent(data, type) {
-            const x = (data.x / 100) * window.innerWidth;
-            const y = (data.y / 100) * window.innerHeight;
+            const doc = document.documentElement;
+            const x = (data.x / 100) * doc.clientWidth;
+            const y = (data.y / 100) * doc.clientHeight;
             
-            const element = document.elementFromPoint(x, y);
+            // Look through portal elements to hit what's underneath
+            const elements = document.elementsFromPoint(x, y);
+            const element = elements.find(el => !el.closest('#audit-panel') && !el.closest('#remote-control-banner') && el.id !== 'agent-cursor' && el.id !== 'customer-canvas');
+            
             if (!element) return;
 
-            // Focus management
             if (type === 'mousedown') {
+                showClickRipple(x, y);
                 if (element.focus) element.focus();
-                addAuditEntry('🖱️', `Agent interaction: ${element.tagName} ${element.id ? '#'+element.id : ''}`, 'warn');
+                addAuditEntry('🖱️', `Agent interaction: <${element.tagName.toLowerCase()}> ${element.id ? '#'+element.id : ''}`, 'warn');
             }
 
             // Dispatch original event
@@ -682,10 +715,8 @@
                 });
                 element.dispatchEvent(clickEv);
 
-                // For some elements, we need the actual .click() method to trigger native actions
                 if (typeof element.click === 'function' && 
                     (element.tagName === 'BUTTON' || element.tagName === 'A' || element.tagName === 'INPUT')) {
-                    // Only call .click() if it wouldn't cause a double-trigger (most modern browsers handle this fine)
                     element.click();
                 }
             }

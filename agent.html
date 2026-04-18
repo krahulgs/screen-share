@@ -669,10 +669,46 @@
 
         controlModeBtn.onclick = toggleControlMode;
 
-        // Helper: get pct coords relative to the video element itself
+        // Helper: get the actual bounding box of the video pixels inside the <video> element
+        // (accounts for letterboxing/object-fit: contain)
+        function getVideoContentRect() {
+            const video = videoElement;
+            const containerRect = video.getBoundingClientRect();
+            
+            // If video hasn't loaded metadata yet
+            if (!video.videoWidth || !video.videoHeight) return containerRect;
+
+            const videoRatio = video.videoWidth / video.videoHeight;
+            const containerRatio = containerRect.width / containerRect.height;
+            
+            let actualWidth, actualHeight, offsetX, offsetY;
+            
+            if (containerRatio > videoRatio) {
+                // Container is wider than video (bars on sides)
+                actualHeight = containerRect.height;
+                actualWidth = actualHeight * videoRatio;
+                offsetX = (containerRect.width - actualWidth) / 2;
+                offsetY = 0;
+            } else {
+                // Container is taller than video (bars on top/bottom)
+                actualWidth = containerRect.width;
+                actualHeight = actualWidth / videoRatio;
+                offsetX = 0;
+                offsetY = (containerRect.height - actualHeight) / 2;
+            }
+            
+            return {
+                left: containerRect.left + offsetX,
+                top: containerRect.top + offsetY,
+                width: actualWidth,
+                height: actualHeight
+            };
+        }
+
+        // Helper: get pct coords relative to the actual video content
         function getVideoPct(e) {
-            const rect = videoElement.getBoundingClientRect();
-            // Clamp to video bounds
+            const rect = getVideoContentRect();
+            // Clamp and calculate percentage relative to the actual pixel area
             const rx = Math.max(0, Math.min(rect.width,  e.clientX - rect.left));
             const ry = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
             return { x: (rx / rect.width) * 100, y: (ry / rect.height) * 100 };
@@ -683,14 +719,13 @@
             if (!conn || !conn.open) return;
             if (e.target.closest('.draw-controls')) return;
 
-            const rect = videoElement.getBoundingClientRect();
-            const rx = e.clientX - rect.left;
-            const ry = e.clientY - rect.top;
-
-            // Move virtual cursor overlay on agent side
+            const contentRect = getVideoContentRect();
+            const containerRect = videoElement.getBoundingClientRect();
+            
+            // Move virtual cursor overlay (relative to container for visual feedback)
             if (controlMode) {
-                agentCursorOverlay.style.left = rx + 'px';
-                agentCursorOverlay.style.top  = ry + 'px';
+                agentCursorOverlay.style.left = (e.clientX - containerRect.left) + 'px';
+                agentCursorOverlay.style.top  = (e.clientY - containerRect.top) + 'px';
             }
 
             // Throttle DataChannel sends
