@@ -702,8 +702,11 @@
         function simulateKeyboard(data) {
             const element = document.activeElement || document.body;
             
-            // Dispatch keydown
-            const keydownEv = new KeyboardEvent('keydown', {
+            // Ensure element is focused for commands
+            if (element && element.focus) element.focus();
+
+            // 1. Dispatch Keydown
+            const keydownParams = {
                 key: data.key,
                 code: data.code,
                 ctrlKey: data.ctrlKey,
@@ -712,46 +715,73 @@
                 metaKey: data.metaKey,
                 bubbles: true,
                 cancelable: true
-            });
+            };
+            const keydownEv = new KeyboardEvent('keydown', keydownParams);
             element.dispatchEvent(keydownEv);
 
-            // Handle text input
-            if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
-                const start = element.selectionStart;
-                const end = element.selectionEnd;
-                const val = element.value;
-
+            // 2. Handle specific logic for Inputs/Textareas
+            const isInput = element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable;
+            
+            if (isInput && !keydownEv.defaultPrevented) {
                 if (data.key.length === 1 && !data.ctrlKey && !data.metaKey) {
-                    // Insert character at cursor
-                    element.value = val.substring(0, start) + data.key + val.substring(end);
-                    element.selectionStart = element.selectionEnd = start + 1;
-                    element.dispatchEvent(new Event('input', { bubbles: true }));
-                } else if (data.key === 'Backspace') {
-                    if (start === end) {
-                        element.value = val.substring(0, start - 1) + val.substring(end);
-                        element.selectionStart = element.selectionEnd = Math.max(0, start - 1);
-                    } else {
-                        element.value = val.substring(0, start) + val.substring(end);
-                        element.selectionStart = element.selectionEnd = start;
+                    // Try to use execCommand for "native-like" input (triggers React/Vue state)
+                    const success = document.execCommand('insertText', false, data.key);
+                    
+                    if (!success && (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA')) {
+                        // Fallback manual manipulation if execCommand fails
+                        try {
+                            const start = element.selectionStart;
+                            const end = element.selectionEnd;
+                            const val = element.value;
+                            element.value = val.slice(0, start) + data.key + val.slice(end);
+                            element.selectionStart = element.selectionEnd = start + 1;
+                            element.dispatchEvent(new Event('input', { bubbles: true }));
+                        } catch (e) {
+                            // Elements that don't support selection (like type="email")
+                            element.value += data.key;
+                            element.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
                     }
-                    element.dispatchEvent(new Event('input', { bubbles: true }));
+                } else if (data.key === 'Backspace') {
+                    const success = document.execCommand('delete', false);
+                    
+                    if (!success && (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA')) {
+                        try {
+                            const start = element.selectionStart;
+                            const end = element.selectionEnd;
+                            const val = element.value;
+                            if (start === end) {
+                                element.value = val.slice(0, start - 1) + val.slice(end);
+                                element.selectionStart = element.selectionEnd = Math.max(0, start - 1);
+                            } else {
+                                element.value = val.slice(0, start) + val.slice(end);
+                                element.selectionStart = element.selectionEnd = start;
+                            }
+                            element.dispatchEvent(new Event('input', { bubbles: true }));
+                        } catch (e) {
+                            element.value = element.value.slice(0, -1);
+                            element.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                    }
                 } else if (data.key === 'Enter') {
                     element.dispatchEvent(new Event('change', { bubbles: true }));
-                    if (element.form) element.form.dispatchEvent(new Event('submit', { bubbles: true }));
+                    // If it's a form input, try to submit the form
+                    if (element.form) {
+                        try {
+                            element.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                            // Some forms only respond to .submit()
+                            // element.form.submit(); 
+                        } catch (e) {}
+                    }
+                } else if (data.key === 'Tab') {
+                    // Basic Tab cycling is hard to simulate via JS, 
+                    // usually left to the user or a complex focus-trap manager.
+                    addAuditEntry('⌨️', 'Agent pressed Tab (Focus cycles on agent side)', 'info');
                 }
             }
 
-            // Dispatch keyup
-            const keyupEv = new KeyboardEvent('keyup', {
-                key: data.key,
-                code: data.code,
-                ctrlKey: data.ctrlKey,
-                shiftKey: data.shiftKey,
-                altKey: data.altKey,
-                metaKey: data.metaKey,
-                bubbles: true,
-                cancelable: true
-            });
+            // 3. Dispatch Keyup
+            const keyupEv = new KeyboardEvent('keyup', keydownParams);
             element.dispatchEvent(keyupEv);
         }
     </script>
