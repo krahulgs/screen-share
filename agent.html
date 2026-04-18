@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Console - Remote Assist</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        .input-group {
+            display: flex;
+            gap: 0.5rem;
+            max-width: 400px;
+            margin: 0 auto 1.5rem;
+        }
+        input {
+            flex: 1;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
+            outline: none;
+            font-size: 1.5rem;
+            text-align: center;
+            letter-spacing: 0.2rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        input:focus { border-color: var(--primary); }
+
+        /* Customer device info banner */
+        #device-banner {
+            display: none;
+            background: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            border-radius: 0.75rem;
+            padding: 0.75rem 1.25rem;
+            margin-bottom: 1.25rem;
+            font-size: 0.82rem;
+            color: var(--text-muted);
+        }
+        #device-banner strong { color: var(--accent); }
+        .device-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.4rem 1rem;
+            margin-top: 0.5rem;
+        }
+        .device-cell { display: flex; flex-direction: column; }
+        .device-cell .label { font-size: 0.65rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+        .device-cell .value { color: var(--text-main); font-size: 0.8rem; }
+
+        /* Audit log */
+        #audit-panel {
+            background: var(--bg-card);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 1rem;
+            overflow: hidden;
+            margin-top: 1.5rem;
+        }
+        .audit-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+            cursor: pointer;
+            user-select: none;
+        }
+        .audit-header-row h3 {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .badge-count {
+            background: var(--primary);
+            color: white;
+            font-size: 0.65rem;
+            border-radius: 999px;
+            padding: 1px 7px;
+        }
+
+        #audit-table-wrap {
+            max-height: 280px;
+            overflow-y: auto;
+        }
+        #audit-table-wrap.collapsed { max-height: 0; }
+
+        table.audit-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.75rem;
+        }
+        table.audit-table thead th {
+            padding: 0.5rem 1rem;
+            text-align: left;
+            color: #475569;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.65rem;
+            letter-spacing: 0.05em;
+            background: rgba(0,0,0,0.2);
+            position: sticky;
+            top: 0;
+        }
+        table.audit-table tbody tr {
+            border-top: 1px solid rgba(255,255,255,0.04);
+            animation: audit-row-in 0.2s ease;
+        }
+        table.audit-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+        table.audit-table td {
+            padding: 0.45rem 1rem;
+            vertical-align: middle;
+        }
+        .ts-cell {
+            font-family: monospace;
+            color: #475569;
+            white-space: nowrap;
+        }
+        .event-cell { color: var(--text-main); }
+        .actor-cell { color: #818cf8; }
+        .meta-cell  { color: #64748b; font-family: monospace; font-size: 0.7rem; }
+        .level-info  .event-icon { color: #60a5fa; }
+        .level-warn  .event-icon { color: #fbbf24; }
+        .level-success .event-icon { color: #34d399; }
+        .level-error .event-icon  { color: #f87171; }
+
+        @keyframes audit-row-in {
+            from { opacity: 0; transform: translateX(-4px); }
+            to   { opacity: 1; transform: none; }
+        }
+
+        .audit-footer-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem 1.25rem;
+            border-top: 1px solid rgba(255,255,255,0.07);
+            font-size: 0.72rem;
+            color: var(--text-muted);
+        }
+        .audit-footer-row button {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--text-muted);
+            padding: 0.3rem 0.7rem;
+            border-radius: 0.4rem;
+            cursor: pointer;
+            font-size: 0.72rem;
+            transition: background 0.2s;
+        }
+        .audit-footer-row button:hover { background: rgba(255,255,255,0.1); }
+    </style>
+</head>
+<body>
+    <div class="container" style="max-width: 900px;">
+        <div class="header">
+            <h1>Agent Console</h1>
+            <p>Remote Viewing & Interaction Dashboard</p>
+        </div>
+
+        <div class="card">
+            <div class="input-group">
+                <input type="text" id="peer-id-input" placeholder="XXXXXX" maxlength="6">
+                <button id="connect-btn" class="btn btn-primary">Connect</button>
+                <button id="disconnect-btn" class="btn btn-danger" style="display:none;">Disconnect</button>
+            </div>
+
+            <!-- Device banner — shown once customer connects -->
+            <div id="device-banner">
+                <strong>💻 Customer Device</strong>
+                <div class="device-grid" id="device-grid"></div>
+            </div>
+
+            <div id="remote-video-container" style="display: none;">
+                <video id="remote-video" autoplay playsinline></video>
+
+                <!-- Annotation Layer -->
+                <div id="annotation-canvas-container">
+                    <canvas id="agent-canvas" class="annotation-layer"></canvas>
+                </div>
+
+                <div class="draw-controls">
+                    <button id="pointer-tool" class="tool-btn active" title="Pointer Mode">🖱️</button>
+                    <button id="draw-tool" class="tool-btn" title="Annotation Mode">✏️</button>
+                    <button id="clear-tool" class="tool-btn" title="Clear Annotations">🗑️</button>
+                </div>
+
+                <div style="position: absolute; top: 1rem; left: 1rem; background: rgba(0,0,0,0.65); padding: 0.4rem 0.9rem; border-radius: 2rem; font-size: 0.78rem; pointer-events: none;">
+                    <span class="status-dot status-online"></span> LIVE
+                </div>
+            </div>
+
+            <div id="welcome-msg" style="text-align: center; color: var(--text-muted); padding: 3rem 0;">
+                <p>Enter the customer's 6-digit Support ID to connect.</p>
+            </div>
+        </div>
+
+        <!-- Audit Log Table -->
+        <div id="audit-panel">
+            <div class="audit-header-row" id="audit-toggle">
+                <h3>
+                    🛡️ Session Audit Log
+                    <span class="badge-count" id="audit-count">0</span>
+                </h3>
+                <div style="display:flex; gap:0.5rem; align-items:center;">
+                    <span id="session-timer" style="font-size:0.72rem; font-family:monospace; color:#475569;"></span>
+                    <span id="toggle-icon" style="font-size:0.7rem; color:var(--text-muted);">▼</span>
+                </div>
+            </div>
+
+            <div id="audit-table-wrap">
+                <table class="audit-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Icon</th>
+                            <th>Event</th>
+                            <th>Actor</th>
+                            <th>Metadata</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-tbody"></tbody>
+                </table>
+            </div>
+
+            <div class="audit-footer-row">
+                <span id="session-id-label" style="font-family:monospace;">No active session</span>
+                <div style="display:flex; gap:0.5rem;">
+                    <button id="clear-log-btn">Clear Log</button>
+                    <button id="export-log-btn">⬇ Export JSON</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ─── Agent machine info ───────────────────────────────────────────────────
+        const agentUA = navigator.userAgent;
+        let agentOS = 'Unknown';
+        if (/Windows/.test(agentUA))      agentOS = 'Windows';
+        else if (/Mac OS X/.test(agentUA)) agentOS = 'macOS';
+        else if (/Linux/.test(agentUA))   agentOS = 'Linux';
+        const agentLabel = `Agent (${agentOS})`;
+
+        // ─── Audit Log ────────────────────────────────────────────────────────────
+        const auditLog   = [];
+        const auditTbody = document.getElementById('audit-tbody');
+        const auditCount = document.getElementById('audit-count');
+
+        function nowZ() { return new Date().toISOString(); }
+
+        function ts() {
+            const d = new Date();
+            return d.toLocaleTimeString('en-IN', {
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+            }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+        }
+
+        function addAudit(icon, event, actor, meta = '', level = 'info') {
+            const entry = { time: nowZ(), icon, event, actor, meta, level };
+            auditLog.push(entry);
+            auditCount.textContent = auditLog.length;
+
+            const tr = document.createElement('tr');
+            tr.className = `level-${level}`;
+            tr.innerHTML = `
+                <td class="ts-cell">${ts()}</td>
+                <td class="event-icon">${icon}</td>
+                <td class="event-cell">${event}</td>
+                <td class="actor-cell">${actor}</td>
+                <td class="meta-cell">${meta}</td>`;
+            auditTbody.appendChild(tr);
+
+            const wrap = document.getElementById('audit-table-wrap');
+            wrap.scrollTop = wrap.scrollHeight;
+        }
+
+        // Collapse toggle
+        document.getElementById('audit-toggle').onclick = () => {
+            const wrap = document.getElementById('audit-table-wrap');
+            wrap.classList.toggle('collapsed');
+            document.getElementById('toggle-icon').textContent =
+                wrap.classList.contains('collapsed') ? '▲' : '▼';
+        };
+
+        // Session timer
+        let sessionStart = null;
+        let timerInterval = null;
+        function startTimer() {
+            sessionStart = Date.now();
+            timerInterval = setInterval(() => {
+                const s = Math.floor((Date.now() - sessionStart) / 1000);
+                const h = String(Math.floor(s / 3600)).padStart(2, '0');
+                const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+                const sec = String(s % 60).padStart(2, '0');
+                document.getElementById('session-timer').textContent = `${h}:${m}:${sec}`;
+            }, 1000);
+        }
+
+        // Export
+        document.getElementById('export-log-btn').onclick = () => {
+            const blob = new Blob([JSON.stringify({
+                sessionId: currentSessionId,
+                agentOs: agentOS,
+                exportedAt: nowZ(),
+                entries: auditLog
+            }, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `agent_audit_${currentSessionId || 'x'}_${Date.now()}.json`;
+            a.click();
+            addAudit('⬇️', 'Audit log exported', agentLabel, '', 'info');
+        };
+
+        document.getElementById('clear-log-btn').onclick = () => {
+            if (!confirm('Clear the audit log? (Cannot be undone)')) return;
+            auditLog.length = 0;
+            auditTbody.innerHTML = '';
+            auditCount.textContent = '0';
+        };
+
+        // ─── App State ───────────────────────────────────────────────────────────
+        let peer = null;
+        let conn = null;
+        let currentSessionId = null;
+        let customerInfo    = {};
+
+        const connectBtn    = document.getElementById('connect-btn');
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const peerIdInput   = document.getElementById('peer-id-input');
+        const videoElement  = document.getElementById('remote-video');
+        const videoContainer = document.getElementById('remote-video-container');
+        const welcomeMsg    = document.getElementById('welcome-msg');
+        const deviceBanner  = document.getElementById('device-banner');
+
+        // Drawing
+        const agentCanvas = document.getElementById('agent-canvas');
+        const ctx = agentCanvas.getContext('2d');
+        const pointerTool = document.getElementById('pointer-tool');
+        const drawTool    = document.getElementById('draw-tool');
+        const clearTool   = document.getElementById('clear-tool');
+
+        let isDrawing   = false;
+        let currentTool = 'pointer';
+
+        pointerTool.onclick = () => {
+            currentTool = 'pointer';
+            pointerTool.classList.add('active');
+            drawTool.classList.remove('active');
+            agentCanvas.style.pointerEvents = 'none';
+            addAudit('🖱️', 'Switched to Pointer mode', agentLabel, '', 'info');
+        };
+        drawTool.onclick = () => {
+            currentTool = 'draw';
+            drawTool.classList.add('active');
+            pointerTool.classList.remove('active');
+            agentCanvas.style.pointerEvents = 'auto';
+            resizeCanvas();
+            addAudit('✏️', 'Switched to Annotation mode', agentLabel, '', 'info');
+        };
+        clearTool.onclick = () => {
+            ctx.clearRect(0, 0, agentCanvas.width, agentCanvas.height);
+            if (conn && conn.open) conn.send({ type: 'clear-annotations' });
+            addAudit('🗑️', 'Annotations cleared', agentLabel, '', 'info');
+        };
+
+        function resizeCanvas() {
+            agentCanvas.width  = videoElement.clientWidth;
+            agentCanvas.height = videoElement.clientHeight;
+        }
+        window.onresize = resizeCanvas;
+
+        agentCanvas.onmousedown = (e) => {
+            if (currentTool !== 'draw') return;
+            isDrawing = true;
+            ctx.beginPath();
+            ctx.strokeStyle = '#6366f1';
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            drawPoint(e);
+        };
+        agentCanvas.onmousemove = drawPoint;
+        agentCanvas.onmouseup = () => {
+            if (!isDrawing) return;
+            isDrawing = false;
+            if (conn && conn.open) conn.send({ type: 'end-path' });
+        };
+
+        function drawPoint(e) {
+            if (!isDrawing) return;
+            const rect = agentCanvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            if (conn && conn.open) {
+                conn.send({
+                    type: 'ink',
+                    x: (x / agentCanvas.width)  * 100,
+                    y: (y / agentCanvas.height) * 100
+                });
+            }
+        }
+
+        // ─── Peer Initialization ─────────────────────────────────────────────────
+        addAudit('🔌', 'Agent console loaded', agentLabel, '', 'info');
+        peer = new Peer({ debug: 2 });
+        peer.on('open', (id) => {
+            addAudit('✅', 'Agent peer registered', agentLabel, `Peer ID: ${id}`, 'success');
+        });
+
+        // ─── Connect to Customer ─────────────────────────────────────────────────
+        connectBtn.onclick = () => {
+            const customerId = peerIdInput.value.trim();
+            if (!customerId || customerId.length !== 6) {
+                alert('Please enter a valid 6-digit Support ID');
+                return;
+            }
+
+            currentSessionId = customerId;
+            document.getElementById('session-id-label').textContent = `Session: ${customerId}`;
+            addAudit('🔗', 'Initiating connection', agentLabel, `Target ID: ${customerId}`, 'info');
+
+            // Data channel
+            conn = peer.connect(customerId);
+            setupDataChannel();
+
+            // Media call
+            const call = peer.call(customerId, null);
+            call.on('stream', (stream) => {
+                videoElement.srcObject = stream;
+                videoContainer.style.display = 'block';
+                welcomeMsg.style.display = 'none';
+                setTimeout(resizeCanvas, 150);
+                startTimer();
+                addAudit('📺', 'Live screen stream received', agentLabel, '', 'success');
+            });
+            call.on('error', (err) => {
+                addAudit('❌', 'WebRTC call error', agentLabel, err.message, 'error');
+            });
+
+            connectBtn.style.display = 'none';
+            disconnectBtn.style.display = 'inline-flex';
+        };
+
+        // ─── Data Channel Setup ───────────────────────────────────────────────────
+        function setupDataChannel() {
+            conn.on('open', () => {
+                addAudit('🤝', 'Data channel established', agentLabel, `Customer: ${currentSessionId}`, 'success');
+                connectBtn.innerText = 'Connected';
+            });
+
+            conn.on('data', (data) => {
+                if (data.type === 'device-info') {
+                    // Customer sent their machine fingerprint
+                    customerInfo = data;
+                    renderDeviceBanner(data);
+                    addAudit('💻', 'Customer device info received', 'Customer', `${data.deviceLabel}`, 'success');
+                }
+            });
+
+            conn.on('close', () => {
+                addAudit('🔌', 'Customer disconnected', agentLabel, '', 'warn');
+                clearInterval(timerInterval);
+                alert('Session ended — customer disconnected.');
+                location.reload();
+            });
+        }
+
+        function renderDeviceBanner(info) {
+            const m = info.machine || {};
+            deviceBanner.style.display = 'block';
+            document.getElementById('device-grid').innerHTML = `
+                <div class="device-cell"><span class="label">OS</span><span class="value">${m.os || '—'}</span></div>
+                <div class="device-cell"><span class="label">Browser</span><span class="value">${m.browser || '—'}</span></div>
+                <div class="device-cell"><span class="label">Platform</span><span class="value">${m.platform || '—'}</span></div>
+                <div class="device-cell"><span class="label">Resolution</span><span class="value">${m.screen_res || '—'}</span></div>
+                <div class="device-cell"><span class="label">Timezone</span><span class="value">${m.tz || '—'}</span></div>
+                <div class="device-cell"><span class="label">Session ID</span><span class="value">${info.sessionId || '—'}</span></div>`;
+        }
+
+        // ─── Remote Click ─────────────────────────────────────────────────────────
+        videoContainer.addEventListener('mousedown', (e) => {
+            if (currentTool !== 'pointer' || !conn || !conn.open) return;
+            if (e.target.closest('.draw-controls')) return;
+
+            const rect = videoElement.getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width)  * 100;
+            const y = ((e.clientY - rect.top)  / rect.height) * 100;
+
+            conn.send({ type: 'remote-click', x, y });
+            addAudit('🖱️', 'Remote click sent', agentLabel, `pos: (${x.toFixed(1)}%, ${y.toFixed(1)}%)`, 'warn');
+        });
+
+        // ─── Disconnect ───────────────────────────────────────────────────────────
+        disconnectBtn.onclick = () => {
+            if (!confirm('Disconnect from the customer session?')) return;
+            addAudit('⏹', 'Agent initiated disconnect', agentLabel, '', 'warn');
+            clearInterval(timerInterval);
+            if (conn) conn.close();
+            if (peer) peer.destroy();
+            setTimeout(() => location.reload(), 500);
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer - Remote Assist</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        /* Machine Info Badge */
+        .machine-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 2rem;
+            font-size: 0.8rem;
+            color: var(--accent);
+            margin-top: 0.75rem;
+        }
+
+        /* Audit Log Panel */
+        #audit-panel {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            width: 340px;
+            max-height: 280px;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 1rem;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            backdrop-filter: blur(12px);
+            transition: max-height 0.3s ease;
+        }
+        #audit-panel.collapsed { max-height: 44px; }
+
+        .audit-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid rgba(255,255,255,0.07);
+            cursor: pointer;
+            user-select: none;
+        }
+        .audit-header span { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+        .audit-header .badge-count {
+            background: var(--primary);
+            color: white;
+            font-size: 0.65rem;
+            border-radius: 999px;
+            padding: 1px 7px;
+        }
+
+        #audit-entries {
+            overflow-y: auto;
+            flex: 1;
+            padding: 0.5rem;
+        }
+
+        .audit-entry {
+            display: flex;
+            gap: 0.5rem;
+            font-size: 0.73rem;
+            padding: 0.3rem 0.4rem;
+            border-radius: 0.4rem;
+            color: var(--text-main);
+            animation: audit-in 0.2s ease;
+        }
+        .audit-entry:hover { background: rgba(255,255,255,0.04); }
+        .audit-entry .ts {
+            font-family: monospace;
+            color: var(--text-muted);
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .audit-entry .icon { flex-shrink: 0; }
+        .audit-entry.warn .msg { color: #fbbf24; }
+        .audit-entry.error .msg { color: #f87171; }
+        .audit-entry.success .msg { color: var(--accent); }
+
+        @keyframes audit-in {
+            from { opacity: 0; transform: translateY(4px); }
+            to   { opacity: 1; transform: none; }
+        }
+
+        .audit-footer {
+            padding: 0.4rem 1rem;
+            border-top: 1px solid rgba(255,255,255,0.07);
+            display: flex;
+            justify-content: flex-end;
+        }
+        .audit-footer button {
+            font-size: 0.7rem;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+        .audit-footer button:hover { color: var(--danger); }
+    </style>
+</head>
+<body>
+    <!-- Annotation Layer -->
+    <canvas id="customer-canvas" style="position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:9999;"></canvas>
+
+    <!-- Audit Log Panel -->
+    <div id="audit-panel">
+        <div class="audit-header" id="audit-toggle">
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+                <span>🛡️ Session Audit Log</span>
+                <span class="badge-count" id="audit-count">0</span>
+            </div>
+            <span id="toggle-icon" style="font-size:0.7rem; color:var(--text-muted);">▼</span>
+        </div>
+        <div id="audit-entries"></div>
+        <div class="audit-footer">
+            <button id="export-log-btn" title="Export log as JSON">⬇ Export</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="header">
+            <h1>Customer Portal</h1>
+            <p>Secure Remote Assistance & Screen Sharing</p>
+        </div>
+
+        <div class="card" style="text-align: center;">
+            <div id="status-container">
+                <span class="status-dot" id="status-dot"></span>
+                <span id="status-text">Disconnected</span>
+            </div>
+
+            <!-- Machine Info -->
+            <div id="machine-info-row" style="margin-top:0.75rem;"></div>
+
+            <div id="id-display" style="display: none;">
+                <p style="margin-top:1.5rem;">Your Support ID:</p>
+                <div class="id-badge" id="my-id">...</div>
+                <p style="margin-top: 1rem; font-size: 0.9rem; color: var(--text-muted);">
+                    Share this ID with the agent to start.
+                </p>
+            </div>
+
+            <div class="controls" style="margin-top: 2rem;">
+                <button id="start-btn" class="btn btn-primary">
+                    <span>Initialize Session</span>
+                </button>
+                <button id="share-btn" class="btn btn-accent" disabled title="Initialize first">
+                    <span>Share Screen</span>
+                </button>
+                <button id="stop-btn" class="btn btn-danger" style="display:none;">
+                    ⏹ End Session
+                </button>
+            </div>
+        </div>
+
+        <div class="card" id="sharing-notice" style="display: none; border-color: var(--accent);">
+            <h3 style="color: var(--accent); margin-bottom: 1rem;">Screen Sharing Active</h3>
+            <p>The agent can now see your screen and assist you. You may stop sharing at any time.</p>
+        </div>
+    </div>
+
+    <script>
+        // ─── Machine Fingerprint ─────────────────────────────────────────────────
+        function getMachineInfo() {
+            const ua = navigator.userAgent;
+            const platform = navigator.platform || 'Unknown';
+
+            // Detect OS from userAgent
+            let os = 'Unknown OS';
+            if (/Windows NT 10/.test(ua))      os = 'Windows 10/11';
+            else if (/Windows NT 6\.1/.test(ua)) os = 'Windows 7';
+            else if (/Windows/.test(ua))        os = 'Windows';
+            else if (/Mac OS X/.test(ua)) {
+                const match = ua.match(/Mac OS X ([\d_]+)/);
+                os = match ? 'macOS ' + match[1].replace(/_/g, '.') : 'macOS';
+            }
+            else if (/Linux/.test(ua))          os = 'Linux';
+            else if (/Android/.test(ua))        os = 'Android';
+            else if (/iPhone|iPad/.test(ua))    os = 'iOS';
+
+            // Detect browser
+            let browser = 'Unknown Browser';
+            if (/Edg\//.test(ua))        browser = 'Edge';
+            else if (/Firefox\//.test(ua)) browser = 'Firefox';
+            else if (/Chrome\//.test(ua))  browser = 'Chrome';
+            else if (/Safari\//.test(ua))  browser = 'Safari';
+
+            const screen_res = `${window.screen.width}×${window.screen.height}`;
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+            return { os, browser, platform, screen_res, tz };
+        }
+
+        const machineInfo = getMachineInfo();
+        const deviceLabel = `${machineInfo.os} · ${machineInfo.browser} · ${machineInfo.screen_res}`;
+
+        // Render machine badge
+        document.getElementById('machine-info-row').innerHTML = `
+            <div class="machine-badge">
+                💻 <strong>${deviceLabel}</strong>
+            </div>
+            <div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.4rem;">
+                Platform: ${machineInfo.platform} &nbsp;|&nbsp; Timezone: ${machineInfo.tz}
+            </div>`;
+
+        // ─── Audit Log ───────────────────────────────────────────────────────────
+        const auditLog = [];
+        const auditEntries = document.getElementById('audit-entries');
+        const auditCount  = document.getElementById('audit-count');
+
+        function ts() {
+            return new Date().toLocaleTimeString('en-IN', {
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+            });
+        }
+
+        function addAuditEntry(icon, msg, level = 'info') {
+            const entry = { time: new Date().toISOString(), icon, msg, level };
+            auditLog.push(entry);
+            auditCount.textContent = auditLog.length;
+
+            const row = document.createElement('div');
+            row.className = `audit-entry ${level}`;
+            row.innerHTML = `<span class="ts">${ts()}</span><span class="icon">${icon}</span><span class="msg">${msg}</span>`;
+            auditEntries.appendChild(row);
+            auditEntries.scrollTop = auditEntries.scrollHeight;
+        }
+
+        // Collapse toggle
+        document.getElementById('audit-toggle').onclick = () => {
+            const panel = document.getElementById('audit-panel');
+            panel.classList.toggle('collapsed');
+            document.getElementById('toggle-icon').textContent =
+                panel.classList.contains('collapsed') ? '▲' : '▼';
+        };
+
+        // Export log
+        document.getElementById('export-log-btn').onclick = () => {
+            const blob = new Blob([JSON.stringify({ machine: machineInfo, sessionId: currentSessionId, entries: auditLog }, null, 2)],
+                { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `audit_${currentSessionId || 'unknown'}_${Date.now()}.json`;
+            a.click();
+            addAuditEntry('⬇️', 'Audit log exported', 'info');
+        };
+
+        // ─── App State ───────────────────────────────────────────────────────────
+        let peer = null;
+        let conn = null;
+        let screenStream = null;
+        let currentSessionId = null;
+
+        const startBtn  = document.getElementById('start-btn');
+        const shareBtn  = document.getElementById('share-btn');
+        const stopBtn   = document.getElementById('stop-btn');
+        const myIdDisplay = document.getElementById('my-id');
+        const idSection = document.getElementById('id-display');
+        const statusText = document.getElementById('status-text');
+        const statusDot  = document.getElementById('status-dot');
+
+        addAuditEntry('🖥️', `Device identified: ${deviceLabel}`, 'info');
+        addAuditEntry('🔌', 'Customer portal loaded. Session not started.', 'info');
+
+        // ─── Annotation Canvas ───────────────────────────────────────────────────
+        const customerCanvas = document.getElementById('customer-canvas');
+        const ctx = customerCanvas.getContext('2d');
+        let currentPathStarted = false;
+        let clearTimer = null;
+
+        function resizeCanvas() {
+            customerCanvas.width  = window.innerWidth;
+            customerCanvas.height = window.innerHeight;
+        }
+        window.onresize = resizeCanvas;
+        resizeCanvas();
+
+        function renderRemoteInk(xPercent, yPercent) {
+            const x = (xPercent / 100) * customerCanvas.width;
+            const y = (yPercent / 100) * customerCanvas.height;
+            if (!currentPathStarted) {
+                ctx.beginPath();
+                ctx.strokeStyle = '#6366f1';
+                ctx.lineWidth = 4;
+                ctx.lineCap = 'round';
+                ctx.moveTo(x, y);
+                currentPathStarted = true;
+            } else {
+                ctx.lineTo(x, y);
+                ctx.stroke();
+            }
+            clearTimeout(clearTimer);
+            clearTimer = setTimeout(() => {
+                ctx.clearRect(0, 0, customerCanvas.width, customerCanvas.height);
+            }, 10000);
+        }
+
+        // ─── Session Init ────────────────────────────────────────────────────────
+        startBtn.onclick = () => {
+            currentSessionId = Math.floor(100000 + Math.random() * 900000).toString();
+            addAuditEntry('🔑', `Registering session ID: ${currentSessionId}`, 'info');
+
+            try {
+                peer = new Peer(currentSessionId, { debug: 2 });
+
+                peer.on('open', (id) => {
+                    myIdDisplay.innerText = id;
+                    idSection.style.display = 'block';
+                    statusText.innerText = 'Online — Waiting for Agent';
+                    statusDot.className = 'status-dot status-online';
+                    startBtn.style.display = 'none';
+                    shareBtn.disabled = false;
+                    stopBtn.style.display = 'inline-flex';
+                    addAuditEntry('✅', `Peer registered. Session ID: ${id}`, 'success');
+                });
+
+                peer.on('connection', (connection) => {
+                    conn = connection;
+                    addAuditEntry('🤝', 'Agent connection incoming…', 'info');
+                    setupDataChannel();
+                });
+
+                peer.on('error', (err) => {
+                    console.error('PeerJS Error:', err);
+                    addAuditEntry('❌', `Peer error: ${err.type}`, 'error');
+                    if (err.type === 'unavailable-id') {
+                        alert('ID collision — please click Initialize again.');
+                    } else {
+                        alert('Connection error: ' + err.type);
+                    }
+                });
+            } catch (e) {
+                console.error('Peer init failed:', e);
+                addAuditEntry('❌', `Peer init exception: ${e.message}`, 'error');
+            }
+        };
+
+        // ─── Data Channel ────────────────────────────────────────────────────────
+        function setupDataChannel() {
+            conn.on('open', () => {
+                statusText.innerText = 'Connected to Agent';
+                statusDot.className = 'status-dot status-busy';
+                addAuditEntry('🔗', 'Data channel open with agent', 'success');
+
+                // Broadcast machine fingerprint to agent
+                conn.send({
+                    type: 'device-info',
+                    machine: machineInfo,
+                    deviceLabel,
+                    sessionId: currentSessionId,
+                    connectedAt: new Date().toISOString()
+                });
+            });
+
+            conn.on('data', (data) => {
+                if (data.type === 'remote-click') {
+                    const pct = `(${data.x.toFixed(1)}%, ${data.y.toFixed(1)}%)`;
+                    addAuditEntry('🖱️', `Agent clicked at ${pct}`, 'warn');
+                    simulateRemoteAction(data.x, data.y);
+                } else if (data.type === 'ink') {
+                    renderRemoteInk(data.x, data.y);
+                } else if (data.type === 'end-path') {
+                    addAuditEntry('✏️', 'Agent drew annotation', 'info');
+                    currentPathStarted = false;
+                } else if (data.type === 'clear-annotations') {
+                    addAuditEntry('🗑️', 'Agent cleared annotations', 'info');
+                    ctx.clearRect(0, 0, customerCanvas.width, customerCanvas.height);
+                }
+            });
+
+            conn.on('close', () => {
+                addAuditEntry('🔌', 'Agent disconnected', 'warn');
+                statusText.innerText = 'Agent disconnected';
+                statusDot.className = 'status-dot';
+            });
+        }
+
+        // ─── Screen Share ─────────────────────────────────────────────────────────
+        async function shareScreen() {
+            addAuditEntry('📺', 'Requesting screen share permissions…', 'info');
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { cursor: 'always' },
+                    audio: false
+                });
+
+                peer.on('call', (call) => {
+                    addAuditEntry('📞', 'Agent WebRTC call received — answering with stream', 'success');
+                    call.answer(screenStream);
+                });
+
+                document.getElementById('sharing-notice').style.display = 'block';
+                shareBtn.disabled = true;
+                shareBtn.innerText = 'Sharing…';
+                addAuditEntry('🟢', 'Screen sharing started', 'success');
+
+                screenStream.getVideoTracks()[0].onended = () => {
+                    addAuditEntry('🔴', 'Screen sharing stopped by customer', 'warn');
+                    document.getElementById('sharing-notice').style.display = 'none';
+                    shareBtn.disabled = false;
+                    shareBtn.innerHTML = '<span>Share Screen</span>';
+                };
+            } catch (err) {
+                console.error('Screen share failed:', err);
+                addAuditEntry('❌', `Screen share failed: ${err.message}`, 'error');
+                alert('Could not start screen sharing: ' + err.message);
+            }
+        }
+
+        shareBtn.onclick = shareScreen;
+
+        // ─── End Session ──────────────────────────────────────────────────────────
+        stopBtn.onclick = () => {
+            if (confirm('Are you sure you want to end the session?')) {
+                addAuditEntry('⏹', 'Session terminated by customer', 'warn');
+                if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+                if (conn) conn.close();
+                if (peer) peer.destroy();
+                setTimeout(() => location.reload(), 800);
+            }
+        };
+
+        // ─── Simulated Click ─────────────────────────────────────────────────────
+        function simulateRemoteAction(xPercent, yPercent) {
+            const x = (xPercent / 100) * window.innerWidth;
+            const y = (yPercent / 100) * window.innerHeight;
+
+            const ripple = document.createElement('div');
+            ripple.className = 'click-ripple';
+            ripple.style.left = x + 'px';
+            ripple.style.top  = y + 'px';
+            document.body.appendChild(ripple);
+            setTimeout(() => ripple.remove(), 500);
+
+            const element = document.elementFromPoint(x, y);
+            if (element && element !== stopBtn && element !== customerCanvas) {
+                element.click();
+                if (element.focus) element.focus();
+            }
+        }
+
+        addAuditEntry('✔️', 'Customer portal ready', 'success');
+    </script>
+</body>
+</html>

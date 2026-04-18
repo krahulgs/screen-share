@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remote Assist Demo</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .demo-split {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            width: 100%;
+        }
+        .portal-card {
+            text-align: center;
+            padding: 3rem;
+        }
+        .portal-card h2 {
+            margin-bottom: 1.5rem;
+            font-size: 2rem;
+        }
+        @media (max-width: 768px) {
+            .demo-split { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>WebRTC Assist Solution</h1>
+            <p>Real-time screen interaction and co-browsing demonstration</p>
+        </div>
+
+        <div class="demo-split">
+            <div class="card portal-card">
+                <h2>I am a Customer</h2>
+                <p style="color: var(--text-muted); margin-bottom: 2rem;">Share your screen to receive help from an agent.</p>
+                <a href="customer.html" class="btn btn-primary" style="text-decoration: none; justify-content: center;">Open Customer Portal</a>
+            </div>
+
+            <div class="card portal-card">
+                <h2>I am an Agent</h2>
+                <p style="color: var(--text-muted); margin-bottom: 2rem;">Remote control and view customer screens.</p>
+                <a href="agent.html" class="btn btn-accent" style="text-decoration: none; justify-content: center;">Open Agent Dashboard</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
