@@ -322,6 +322,7 @@
         let conn = null;
         let screenStream = null;
         let currentSessionId = null;
+        let agentPeerId = null; // Received from agent via data channel
 
         const startBtn  = document.getElementById('start-btn');
         const shareBtn  = document.getElementById('share-btn');
@@ -433,7 +434,11 @@
             });
 
             conn.on('data', (data) => {
-                if (data.type === 'remote-click') {
+                if (data.type === 'agent-peer-id') {
+                    // Agent sent us their peer ID so we can call them
+                    agentPeerId = data.peerId;
+                    addAuditEntry('📇', `Agent peer ID received: ${agentPeerId.substring(0, 8)}…`, 'success');
+                } else if (data.type === 'remote-click') {
                     const pct = `(${data.x.toFixed(1)}%, ${data.y.toFixed(1)}%)`;
                     addAuditEntry('🖱️', `Agent clicked at ${pct}`, 'warn');
                     simulateRemoteAction(data.x, data.y);
@@ -467,6 +472,12 @@
                 return;
             }
 
+            if (!agentPeerId) {
+                addAuditEntry('⚠️', 'No agent connected yet — cannot share screen', 'warn');
+                alert('Please wait for an agent to connect first, then share your screen.');
+                return;
+            }
+
             addAuditEntry('📺', 'Requesting screen share permissions…', 'info');
             try {
                 screenStream = await navigator.mediaDevices.getDisplayMedia({
@@ -474,10 +485,17 @@
                     audio: false
                 });
 
-                peer.on('call', (call) => {
-                    addAuditEntry('📞', 'Agent WebRTC call received — answering with stream', 'success');
-                    call.answer(screenStream);
+                // Call the AGENT with our screen stream
+                addAuditEntry('📞', `Calling agent (${agentPeerId.substring(0, 8)}…) with screen stream`, 'info');
+                const call = peer.call(agentPeerId, screenStream);
+                call.on('error', (err) => {
+                    addAuditEntry('❌', `Media call error: ${err.message || err}`, 'error');
                 });
+
+                // Notify agent via data channel
+                if (conn && conn.open) {
+                    conn.send({ type: 'screen-ready' });
+                }
 
                 document.getElementById('sharing-notice').style.display = 'block';
                 shareBtn.disabled = true;

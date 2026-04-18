@@ -408,29 +408,17 @@
 
         // ─── Peer Initialization ─────────────────────────────────────────────────
         addAudit('🔌', 'Agent console loaded', agentLabel, '', 'info');
+        let agentPeerId = null;
         peer = new Peer({ debug: 2 });
         peer.on('open', (id) => {
+            agentPeerId = id;
             addAudit('✅', 'Agent peer registered', agentLabel, `Peer ID: ${id}`, 'success');
         });
 
-        // ─── Connect to Customer ─────────────────────────────────────────────────
-        connectBtn.onclick = () => {
-            const customerId = peerIdInput.value.trim();
-            if (!customerId || customerId.length !== 6) {
-                alert('Please enter a valid 6-digit Support ID');
-                return;
-            }
-
-            currentSessionId = customerId;
-            document.getElementById('session-id-label').textContent = `Session: ${customerId}`;
-            addAudit('🔗', 'Initiating connection', agentLabel, `Target ID: ${customerId}`, 'info');
-
-            // Data channel
-            conn = peer.connect(customerId);
-            setupDataChannel();
-
-            // Media call
-            const call = peer.call(customerId, null);
+        // Listen for incoming media calls from customer
+        peer.on('call', (call) => {
+            addAudit('📞', 'Incoming media call from customer', agentLabel, '', 'info');
+            call.answer(); // No stream to send back, just receive
             call.on('stream', (stream) => {
                 videoElement.srcObject = stream;
                 videoContainer.style.display = 'block';
@@ -440,8 +428,30 @@
                 addAudit('📺', 'Live screen stream received', agentLabel, '', 'success');
             });
             call.on('error', (err) => {
-                addAudit('❌', 'WebRTC call error', agentLabel, err.message, 'error');
+                addAudit('❌', 'Media call error', agentLabel, err.message || String(err), 'error');
             });
+        });
+
+        // ─── Connect to Customer ─────────────────────────────────────────────────
+        connectBtn.onclick = () => {
+            const customerId = peerIdInput.value.trim();
+            if (!customerId || customerId.length !== 6) {
+                alert('Please enter a valid 6-digit Support ID');
+                return;
+            }
+            if (!agentPeerId) {
+                alert('Agent peer not yet registered. Please wait a moment and retry.');
+                return;
+            }
+
+            currentSessionId = customerId;
+            document.getElementById('session-id-label').textContent = `Session: ${customerId}`;
+            addAudit('🔗', 'Initiating connection', agentLabel, `Target ID: ${customerId}`, 'info');
+
+            // Data channel only — no media call here.
+            // Customer will call us once they share screen.
+            conn = peer.connect(customerId);
+            setupDataChannel();
 
             connectBtn.style.display = 'none';
             disconnectBtn.style.display = 'inline-flex';
@@ -452,14 +462,18 @@
             conn.on('open', () => {
                 addAudit('🤝', 'Data channel established', agentLabel, `Customer: ${currentSessionId}`, 'success');
                 connectBtn.innerText = 'Connected';
+
+                // Send agent's peer ID so customer can call us
+                conn.send({ type: 'agent-peer-id', peerId: agentPeerId });
             });
 
             conn.on('data', (data) => {
                 if (data.type === 'device-info') {
-                    // Customer sent their machine fingerprint
                     customerInfo = data;
                     renderDeviceBanner(data);
                     addAudit('💻', 'Customer device info received', 'Customer', `${data.deviceLabel}`, 'success');
+                } else if (data.type === 'screen-ready') {
+                    addAudit('📺', 'Customer started screen sharing', 'Customer', '', 'success');
                 }
             });
 
