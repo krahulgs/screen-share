@@ -153,6 +153,70 @@
             transition: background 0.2s;
         }
         .audit-footer-row button:hover { background: rgba(255,255,255,0.1); }
+
+        /* ── Fullscreen Cinema Mode ── */
+        #remote-video-container.fullscreen-mode {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 99999;
+            border-radius: 0;
+            border: none;
+            background: #000;
+            aspect-ratio: auto;
+        }
+        #remote-video-container.fullscreen-mode video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        #remote-video-container.fullscreen-mode .draw-controls {
+            top: 1.5rem;
+            right: 1.5rem;
+            padding: 0.6rem 0.8rem;
+            gap: 0.6rem;
+        }
+        #remote-video-container.fullscreen-mode .tool-btn {
+            width: 42px;
+            height: 42px;
+            font-size: 1.1rem;
+        }
+
+        /* Fullscreen info bar */
+        .fs-info-bar {
+            position: absolute;
+            bottom: 1.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(8px);
+            padding: 0.5rem 1.5rem;
+            border-radius: 2rem;
+            font-size: 0.78rem;
+            color: #94a3b8;
+            display: none;
+            pointer-events: none;
+            z-index: 100;
+            white-space: nowrap;
+        }
+        #remote-video-container.fullscreen-mode .fs-info-bar {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+        }
+        .fs-info-bar .fs-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #34d399;
+            animation: pulse-dot 1.5s ease infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
     </style>
 </head>
 <body>
@@ -187,10 +251,18 @@
                     <button id="pointer-tool" class="tool-btn active" title="Pointer Mode">🖱️</button>
                     <button id="draw-tool" class="tool-btn" title="Annotation Mode">✏️</button>
                     <button id="clear-tool" class="tool-btn" title="Clear Annotations">🗑️</button>
+                    <button id="fullscreen-tool" class="tool-btn" title="Toggle Fullscreen (F)">⛶</button>
                 </div>
 
                 <div style="position: absolute; top: 1rem; left: 1rem; background: rgba(0,0,0,0.65); padding: 0.4rem 0.9rem; border-radius: 2rem; font-size: 0.78rem; pointer-events: none;">
                     <span class="status-dot status-online"></span> LIVE
+                </div>
+
+                <div class="fs-info-bar">
+                    <span class="fs-dot"></span>
+                    <span>Screen Sharing Active</span>
+                    <span id="fs-timer" style="font-family:monospace; color:var(--accent);"></span>
+                    <span style="color:#475569;">Press <kbd style="background:rgba(255,255,255,0.1); padding:1px 6px; border-radius:3px; color:#e2e8f0;">Esc</kbd> or <kbd style="background:rgba(255,255,255,0.1); padding:1px 6px; border-radius:3px; color:#e2e8f0;">F</kbd> to exit</span>
                 </div>
             </div>
 
@@ -519,6 +591,51 @@
             if (peer) peer.destroy();
             setTimeout(() => location.reload(), 500);
         };
+
+        // ─── Fullscreen Toggle ────────────────────────────────────────────────────
+        let isFullscreen = false;
+        const fullscreenTool = document.getElementById('fullscreen-tool');
+        const fsTimer = document.getElementById('fs-timer');
+
+        function toggleFullscreen() {
+            isFullscreen = !isFullscreen;
+            videoContainer.classList.toggle('fullscreen-mode', isFullscreen);
+            fullscreenTool.textContent = isFullscreen ? '✕' : '⛶';
+            fullscreenTool.title = isFullscreen ? 'Exit Fullscreen (Esc)' : 'Toggle Fullscreen (F)';
+            document.body.style.overflow = isFullscreen ? 'hidden' : '';
+
+            setTimeout(resizeCanvas, 50);
+
+            addAudit(isFullscreen ? '⛶' : '↙', isFullscreen ? 'Entered fullscreen' : 'Exited fullscreen', agentLabel, '', 'info');
+        }
+
+        fullscreenTool.onclick = toggleFullscreen;
+
+        // Keyboard shortcuts: F to toggle, Escape to exit
+        document.addEventListener('keydown', (e) => {
+            // Don't capture if user is typing in input
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+            if (e.key === 'f' || e.key === 'F') {
+                if (videoContainer.style.display !== 'none') {
+                    toggleFullscreen();
+                }
+            }
+            if (e.key === 'Escape' && isFullscreen) {
+                toggleFullscreen();
+            }
+        });
+
+        // Sync the fullscreen bottom bar timer
+        setInterval(() => {
+            if (sessionStart && fsTimer) {
+                const s = Math.floor((Date.now() - sessionStart) / 1000);
+                const h = String(Math.floor(s / 3600)).padStart(2, '0');
+                const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+                const sec = String(s % 60).padStart(2, '0');
+                fsTimer.textContent = `${h}:${m}:${sec}`;
+            }
+        }, 1000);
     </script>
 </body>
 </html>
