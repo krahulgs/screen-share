@@ -104,6 +104,41 @@
             cursor: pointer;
         }
         .audit-footer button:hover { color: var(--danger); }
+
+        /* Mobile unsupported notice */
+        .unsupported-banner {
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 1rem;
+            padding: 1.25rem 1.5rem;
+            margin-top: 1.5rem;
+            text-align: left;
+        }
+        .unsupported-banner h3 {
+            color: #f87171;
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .unsupported-banner p {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+        .unsupported-banner .tip {
+            margin-top: 0.75rem;
+            padding: 0.6rem 0.9rem;
+            background: rgba(255,255,255,0.04);
+            border-radius: 0.5rem;
+            font-size: 0.78rem;
+            color: #94a3b8;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+        .unsupported-banner .tip strong { color: var(--text-main); }
     </style>
 </head>
 <body>
@@ -148,7 +183,25 @@
                 </p>
             </div>
 
-            <div class="controls" style="margin-top: 2rem;">
+            <!-- Mobile unsupported notice — shown only on mobile -->
+            <div id="mobile-unsupported" style="display:none;" class="unsupported-banner">
+                <h3>📵 Screen Sharing Unavailable</h3>
+                <p>
+                    Your browser does not support screen sharing. This is a known limitation of
+                    <strong>all mobile browsers</strong> (iOS Safari, Android Chrome, Firefox for Android).
+                    The <code>getDisplayMedia</code> API is only available on desktop browsers.
+                </p>
+                <div class="tip">
+                    <span>💡</span>
+                    <span><strong>What to do:</strong> Open this link on a desktop or laptop computer (Chrome, Edge, or Firefox) to share your screen.</span>
+                </div>
+                <div class="tip" style="margin-top:0.4rem;">
+                    <span>📋</span>
+                    <span>Your session link: <strong id="session-link-display" style="color:var(--accent); word-break:break-all;"></strong></span>
+                </div>
+            </div>
+
+            <div class="controls" style="margin-top: 2rem;" id="controls-row">
                 <button id="start-btn" class="btn btn-primary">
                     <span>Initialize Session</span>
                 </button>
@@ -253,6 +306,17 @@
             addAuditEntry('⬇️', 'Audit log exported', 'info');
         };
 
+        // ─── Mobile / Capability Detection ───────────────────────────────────────
+        const isMobile = /Mobi|Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent);
+        const hasDisplayMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
+        const canShare = !isMobile && hasDisplayMedia;
+
+        if (!canShare) {
+            // Show the unsupported banner; hide the Share Screen button
+            document.getElementById('mobile-unsupported').style.display = 'block';
+            document.getElementById('session-link-display').textContent = window.location.href;
+        }
+
         // ─── App State ───────────────────────────────────────────────────────────
         let peer = null;
         let conn = null;
@@ -267,7 +331,15 @@
         const statusText = document.getElementById('status-text');
         const statusDot  = document.getElementById('status-dot');
 
+        // Hide share button entirely on mobile — it cannot work
+        if (!canShare) {
+            shareBtn.style.display = 'none';
+        }
+
         addAuditEntry('🖥️', `Device identified: ${deviceLabel}`, 'info');
+        addAuditEntry(canShare ? '✅' : '📵',
+            canShare ? 'Screen sharing is supported on this device.' : 'Mobile device detected — screen sharing not available.',
+            canShare ? 'success' : 'warn');
         addAuditEntry('🔌', 'Customer portal loaded. Session not started.', 'info');
 
         // ─── Annotation Canvas ───────────────────────────────────────────────────
@@ -385,6 +457,16 @@
 
         // ─── Screen Share ─────────────────────────────────────────────────────────
         async function shareScreen() {
+            // Hard guard: API not available (mobile browser or insecure context)
+            if (!canShare) {
+                addAuditEntry('📵', 'Share attempt blocked — not supported on this device/browser', 'error');
+                alert(
+                    'Screen sharing is not supported on mobile browsers.\n\n' +
+                    'Please open this page on a desktop browser (Chrome, Edge, or Firefox).'
+                );
+                return;
+            }
+
             addAuditEntry('📺', 'Requesting screen share permissions…', 'info');
             try {
                 screenStream = await navigator.mediaDevices.getDisplayMedia({
