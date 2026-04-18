@@ -631,11 +631,14 @@
         function simulatePointer(xPercent, yPercent) {
             const x = (xPercent / 100) * window.innerWidth;
             const y = (yPercent / 100) * window.innerHeight;
-            agentLinkCursor.style.left = x + 'px';
-            agentLinkCursor.style.top = y + 'px';
-            agentLinkCursor.style.display = 'block';
+            
+            if (agentLinkCursor) {
+                agentLinkCursor.style.left = x + 'px';
+                agentLinkCursor.style.top = y + 'px';
+                agentLinkCursor.style.display = 'block';
+            }
 
-            // Simulate mouseover/hover effects
+            // Simulate mouseover
             const element = document.elementFromPoint(x, y);
             if (element) {
                 element.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true, view: window }));
@@ -645,19 +648,45 @@
         function simulateMouseEvent(data, type) {
             const x = (data.x / 100) * window.innerWidth;
             const y = (data.y / 100) * window.innerHeight;
+            
             const element = document.elementFromPoint(x, y);
-            if (element) {
-                element.dispatchEvent(new MouseEvent(type, {
+            if (!element) return;
+
+            // Focus management
+            if (type === 'mousedown') {
+                if (element.focus) element.focus();
+                addAuditEntry('🖱️', `Agent interaction: ${element.tagName} ${element.id ? '#'+element.id : ''}`, 'warn');
+            }
+
+            // Dispatch original event
+            const mouseEv = new MouseEvent(type, {
+                bubbles: true,
+                cancelable: true,
+                view: window,
+                clientX: x,
+                clientY: y,
+                button: data.button || 0,
+                buttons: type === 'mousedown' ? 1 : 0
+            });
+            element.dispatchEvent(mouseEv);
+
+            // If mouseup, also trigger a click sequence
+            if (type === 'mouseup') {
+                const clickEv = new MouseEvent('click', {
                     bubbles: true,
                     cancelable: true,
                     view: window,
                     clientX: x,
                     clientY: y,
                     button: data.button || 0
-                }));
-                if (type === 'mousedown') {
-                    if (element.focus) element.focus();
-                    addAuditEntry('🖱️', `Agent ${data.button === 2 ? 'right-' : ''}clicked on: ${element.tagName}`, 'warn');
+                });
+                element.dispatchEvent(clickEv);
+
+                // For some elements, we need the actual .click() method to trigger native actions
+                if (typeof element.click === 'function' && 
+                    (element.tagName === 'BUTTON' || element.tagName === 'A' || element.tagName === 'INPUT')) {
+                    // Only call .click() if it wouldn't cause a double-trigger (most modern browsers handle this fine)
+                    element.click();
                 }
             }
         }
@@ -672,30 +701,58 @@
 
         function simulateKeyboard(data) {
             const element = document.activeElement || document.body;
-            addAuditEntry('⌨️', `Agent pressed: ${data.key}`, 'info');
-
-            // Dispatch keyboard event
-            const event = new KeyboardEvent('keydown', {
+            
+            // Dispatch keydown
+            const keydownEv = new KeyboardEvent('keydown', {
                 key: data.key,
                 code: data.code,
                 ctrlKey: data.ctrlKey,
                 shiftKey: data.shiftKey,
                 altKey: data.altKey,
                 metaKey: data.metaKey,
-                bubbles: true
+                bubbles: true,
+                cancelable: true
             });
-            element.dispatchEvent(event);
+            element.dispatchEvent(keydownEv);
 
-            // Handle text input simulation
+            // Handle text input
             if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
-                if (data.key.length === 1) {
-                    element.value += data.key;
+                const start = element.selectionStart;
+                const end = element.selectionEnd;
+                const val = element.value;
+
+                if (data.key.length === 1 && !data.ctrlKey && !data.metaKey) {
+                    // Insert character at cursor
+                    element.value = val.substring(0, start) + data.key + val.substring(end);
+                    element.selectionStart = element.selectionEnd = start + 1;
+                    element.dispatchEvent(new Event('input', { bubbles: true }));
                 } else if (data.key === 'Backspace') {
-                    element.value = element.value.slice(0, -1);
+                    if (start === end) {
+                        element.value = val.substring(0, start - 1) + val.substring(end);
+                        element.selectionStart = element.selectionEnd = Math.max(0, start - 1);
+                    } else {
+                        element.value = val.substring(0, start) + val.substring(end);
+                        element.selectionStart = element.selectionEnd = start;
+                    }
+                    element.dispatchEvent(new Event('input', { bubbles: true }));
                 } else if (data.key === 'Enter') {
                     element.dispatchEvent(new Event('change', { bubbles: true }));
+                    if (element.form) element.form.dispatchEvent(new Event('submit', { bubbles: true }));
                 }
             }
+
+            // Dispatch keyup
+            const keyupEv = new KeyboardEvent('keyup', {
+                key: data.key,
+                code: data.code,
+                ctrlKey: data.ctrlKey,
+                shiftKey: data.shiftKey,
+                altKey: data.altKey,
+                metaKey: data.metaKey,
+                bubbles: true,
+                cancelable: true
+            });
+            element.dispatchEvent(keyupEv);
         }
     </script>
 </body>
